@@ -1,6 +1,6 @@
 #Snooze
 
-Snooze is a type safe REST client that allows you to specify your endpoints as functions in Go.
+Snooze is a type safe REST library that allows you to specify describe API endpoints as functions in Go.  Allows for fast integration with 3rd party APIs
 
 ## Example
 
