@@ -3,6 +3,7 @@ package snooze
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -21,6 +22,7 @@ type resultInfo struct {
 	payloadIndex int
 	payloadType  reflect.Type
 	resultLength int
+	contentType  string
 }
 
 func (info *resultInfo) result(err error, bytes []byte) []reflect.Value {
@@ -35,7 +37,25 @@ func (info *resultInfo) result(err error, bytes []byte) []reflect.Value {
 	if info.payloadIndex > -1 {
 		if bytes != nil {
 			target := reflect.New(info.payloadType)
-			err = json.Unmarshal(bytes, target.Interface())
+			respContentType := info.contentType
+			if respContentType != "" {
+				if strings.Contains(respContentType, ";") {
+					respContentType = respContentType[:strings.Index(respContentType, ";")]
+				}
+			} else {
+				respContentType = "application/json"
+			}
+			switch respContentType {
+			case "application/json":
+				err = json.Unmarshal(bytes, target.Interface())
+			case "application/xml":
+				err = xml.Unmarshal(bytes, target.Interface())
+			case "text/xml":
+				err = xml.Unmarshal(bytes, target.Interface())
+			default:
+				fmt.Printf("Content Type (%s) not supported.", respContentType)
+			}
+
 			if err != nil {
 				return info.result(err, nil)
 			}
@@ -58,6 +78,10 @@ func (c *Client) Create(in interface{}) {
 		fieldType := fieldStruct.Type
 		originalPath := fieldStruct.Tag.Get("path")
 		method := fieldStruct.Tag.Get("method")
+		contentType := fieldStruct.Tag.Get("contentType")
+		if contentType == "" {
+			contentType = "application/json"
+		}
 		var body interface{}
 
 		info := resultInfo{
@@ -88,7 +112,15 @@ func (c *Client) Create(in interface{}) {
 			var err error
 			buffer := make([]byte, 0)
 			if method != "GET" && body != nil {
-				buffer, err = json.Marshal(body)
+
+				switch contentType {
+				case "application/json":
+					buffer, err = json.Marshal(body)
+				case "application/xml":
+					buffer, err = xml.Marshal(body)
+				default:
+					return info.result(fmt.Errorf("ContentType (%s) not supported.", contentType), nil)
+				}
 				if err != nil {
 					return info.result(err, nil)
 				}
@@ -98,7 +130,7 @@ func (c *Client) Create(in interface{}) {
 			if err != nil {
 				return info.result(err, nil)
 			}
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 			client := new(http.Client)
 			if c.Before != nil {
 				c.Before(req, client)
@@ -107,6 +139,7 @@ func (c *Client) Create(in interface{}) {
 			if err != nil {
 				return info.result(err, nil)
 			}
+			info.contentType = resp.Header.Get("Content-Type")
 			bytes, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
 				return info.result(err, nil)
